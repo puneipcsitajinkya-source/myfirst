@@ -1,43 +1,42 @@
 from fastapi import FastAPI
+from pydantic import BaseModel
 import pandas as pd
-from sklearn.linear_model import LinearRegression
+import joblib
+import numpy as np
 
-app = FastAPI()
+# ========== STEP 1: LOAD MODEL ==========
+model = joblib.load("battery_model.pkl")
 
-# Sample data: mileage vs price
-data = {
-    'mileage': [15, 30, 45, 60, 75],
-    'price': [550000, 480000, 430000, 390000, 350000]
-}
+# ========== STEP 2: DEFINE APP ==========
+app = FastAPI(title="Battery Capacity Predictor")
 
-# Convert to DataFrame
-df = pd.DataFrame(data)
+# ========== STEP 3: INPUT SCHEMA ==========
+class BatteryInput(BaseModel):
+    Cycle: float
+    Current_A: float
+    Voltage_V: float
+    Temperature_C: float
 
-# Features (X) and Target (y)
-X = df[['mileage']]
-y = df['price']
+# ========== STEP 4: PREDICTION ENDPOINT ==========
+@app.post("/predict")
+def predict_battery(input: BatteryInput):
+    # Create features
+    Cycle_squared = input.Cycle ** 2
+    Cycle_sqrt = np.sqrt(input.Cycle)
+    Voltage_Current = input.Voltage_V * input.Current_A
+    Temp_Current = input.Temperature_C * input.Current_A
 
-# Train Linear Regression model (once, when app starts)
-model = LinearRegression()
-model.fit(X, y)
+    data = pd.DataFrame([{
+        'Cycle': input.Cycle,
+        'Cycle_squared': Cycle_squared,
+        'Cycle_sqrt': Cycle_sqrt,
+        'Current_A': input.Current_A,
+        'Voltage_V': input.Voltage_V,
+        'Temperature_C': input.Temperature_C,
+        'Voltage_Current': Voltage_Current,
+        'Temp_Current': Temp_Current
+    }])
 
-
-@app.get("/")
-async def root():
-    return {"message": "Linear Regression Model is Ready!"}
-
-
-@app.get("/predict/{mileage}")
-async def predict_price(mileage: int):
-    """Predict car price based on mileage"""
-    predicted_price = model.predict([[mileage]])[0]
-    return {
-        "mileage": mileage,
-        "predicted_price": round(predicted_price, 2)
-    }
-
-
-@app.get("/hello/{name}")
-async def say_hello(name: str):
-    return {"message": f"Hello {name}"}
-#ddsd
+    # Predict
+    pred = model.predict(data)[0]
+    return {"Predicted_Capacity_mAh": round(pred, 2)}
